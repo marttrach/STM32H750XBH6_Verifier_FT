@@ -123,6 +123,27 @@ def theme_stylesheet(mode: str) -> str:
                 color: #7b8087;
                 border-color: #3a3d42;
             }
+            QCheckBox {
+                spacing: 6px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #5f6368;
+                background: #2b2f36;
+            }
+            QCheckBox::indicator:checked {
+                background: #4a90e2;
+                border-color: #6aa3ec;
+            }
+            QCheckBox::indicator:disabled {
+                background: #1f2227;
+                border-color: #3a3d42;
+            }
+            QCheckBox::indicator:disabled:checked {
+                background: #3a4a63;
+                border-color: #55667d;
+            }
             QGroupBox {
                 border: 1px solid #3c4043;
                 border-radius: 12px;
@@ -167,16 +188,37 @@ def theme_stylesheet(mode: str) -> str:
         QPushButton:enabled:pressed {
             background: #c1c9dd;
         }
-        QPushButton:disabled {
-            background: #f3f4f6;
-            color: #b0b5c2;
-            border-color: #e5e7eb;
-        }
-        QGroupBox {
-            border: 1px solid #d1d5db;
-            border-radius: 12px;
-            margin-top: 16px;
-            padding: 16px;
+            QPushButton:disabled {
+                background: #f3f4f6;
+                color: #b0b5c2;
+                border-color: #e5e7eb;
+            }
+            QCheckBox {
+                spacing: 6px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #cfd5df;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background: #2563eb;
+                border-color: #1d4ed8;
+            }
+            QCheckBox::indicator:disabled {
+                background: #f3f4f6;
+                border-color: #d1d5db;
+            }
+            QCheckBox::indicator:disabled:checked {
+                background: #9cb5f1;
+                border-color: #7c91d6;
+            }
+            QGroupBox {
+                border: 1px solid #d1d5db;
+                border-radius: 12px;
+                margin-top: 16px;
+                padding: 16px;
         }
         QPlainTextEdit {
             background: #ffffff;

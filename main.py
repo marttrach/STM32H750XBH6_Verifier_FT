@@ -33,6 +33,19 @@ from global_utility import (
 from mis_login import LoginPanel
 
 
+class RefreshingCombo(QtWidgets.QComboBox):
+    """ComboBox that refreshes COM ports when opened."""
+
+    def __init__(self, refresh_cb, parent=None):
+        super().__init__(parent)
+        self._refresh_cb = refresh_cb
+
+    def showPopup(self) -> None:
+        if callable(self._refresh_cb):
+            self._refresh_cb(self)
+        super().showPopup()
+
+
 class TestFixtureWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -44,6 +57,8 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.results: Dict[str, TestResult] = {
             "stlink": TestResult("STLink (Bootloader)"),
             "usb": TestResult("USB (Firmware)"),
+            "gpio": TestResult("GPIO"),
+            "lcd": TestResult("LCD/Backlight"),
             "rs485": TestResult("RS485"),
             "rs232": TestResult("RS232"),
             "rs422": TestResult("RS422"),
@@ -53,11 +68,12 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.tests_enabled = False
         self.current_theme = (self.user_config.theme or "light").lower()
         self.logged_in = False
+        self.serial_checked = False
         self._cursor_buttons: List[QtWidgets.QPushButton] = []
         self._theme_sync_scheduled = False
-
-        central = QtWidgets.QWidget()
-        main_layout = QtWidgets.QVBoxLayout(central)
+        # Use a scroll area to keep widgets visible on small or full-screen displays.
+        content = QtWidgets.QWidget()
+        main_layout = QtWidgets.QVBoxLayout(content)
         main_layout.setContentsMargins(14, 14, 14, 14)
         main_layout.setSpacing(12)
 
@@ -65,13 +81,20 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         main_layout.addLayout(self._build_header())
         main_layout.addSpacing(6)
         main_layout.addWidget(self._build_tests())
+        main_layout.addWidget(self._build_usb_options())
         main_layout.addWidget(self._build_log_panel(), stretch=1)
         main_layout.addWidget(self._build_footer())
 
-        self.setCentralWidget(central)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+
+        self.setCentralWidget(scroll)
         self._enable_tests(False)
         self._apply_theme(self.current_theme)
         self._populate_ports()
+        self._setup_usb_controller()
 
     # UI builders
     def _build_menubar(self) -> None:
@@ -139,8 +162,15 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.serial_edit = QtWidgets.QLineEdit()
         self.serial_edit.setPlaceholderText("Scan or enter DUT serial number")
         self.serial_edit.setMinimumHeight(int(28 * self.ui_scale))
+        self.serial_edit.textChanged.connect(self._on_serial_changed)
+        self.serial_edit.returnPressed.connect(self._check_serial_input)
+        self.check_sn_btn = QtWidgets.QPushButton("Check")
+        self.check_sn_btn.setMinimumHeight(int(28 * self.ui_scale))
+        self.check_sn_btn.clicked.connect(self._check_serial_input)
+        self._register_button_cursor(self.check_sn_btn)
         sn_layout.addWidget(sn_label)
         sn_layout.addWidget(self.serial_edit, stretch=1)
+        sn_layout.addWidget(self.check_sn_btn)
         login_column.addWidget(sn_widget)
         layout.addLayout(login_column, stretch=1)
 
@@ -164,6 +194,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
 
     def _build_tests(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox()
+        group.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
         grid = QtWidgets.QGridLayout(group)
         grid.setHorizontalSpacing(int(10 * self.ui_scale))
         grid.setVerticalSpacing(int(8 * self.ui_scale))
@@ -179,16 +210,26 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.stlink_btn.clicked.connect(lambda: self._run_test("stlink"))
         self._register_button_cursor(self.stlink_btn)
 
-        self.usb_port = QtWidgets.QComboBox()
-        self.usb_port.setMinimumHeight(btn_height)
         self.usb_status = StatusLabel(scale=self.ui_scale)
         self.usb_btn = QtWidgets.QPushButton("USB Flash Firmware")
         self.usb_btn.setMinimumHeight(btn_height)
         self.usb_btn.clicked.connect(lambda: self._run_test("usb"))
         self._register_button_cursor(self.usb_btn)
 
+        self.lcd_status = StatusLabel(scale=self.ui_scale)
+        self.lcd_btn = QtWidgets.QPushButton("LCD/Backlight Test")
+        self.lcd_btn.setMinimumHeight(btn_height)
+        self.lcd_btn.clicked.connect(lambda: self._run_test("lcd"))
+        self._register_button_cursor(self.lcd_btn)
+
+        self.gpio_status = StatusLabel(scale=self.ui_scale)
+        self.gpio_btn = QtWidgets.QPushButton("GPIO Test")
+        self.gpio_btn.setMinimumHeight(btn_height)
+        self.gpio_btn.clicked.connect(lambda: self._run_test("gpio"))
+        self._register_button_cursor(self.gpio_btn)
+
         # Serial port entries
-        self.rs485_port = QtWidgets.QComboBox()
+        self.rs485_port = RefreshingCombo(self._refresh_single_combo)
         self.rs485_port.setMinimumHeight(btn_height)
         self.rs485_status = StatusLabel(scale=self.ui_scale)
         self.rs485_btn = QtWidgets.QPushButton("RS485 Test")
@@ -196,7 +237,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.rs485_btn.clicked.connect(lambda: self._run_test("rs485"))
         self._register_button_cursor(self.rs485_btn)
 
-        self.rs232_port = QtWidgets.QComboBox()
+        self.rs232_port = RefreshingCombo(self._refresh_single_combo)
         self.rs232_port.setMinimumHeight(btn_height)
         self.rs232_status = StatusLabel(scale=self.ui_scale)
         self.rs232_btn = QtWidgets.QPushButton("RS232 Test")
@@ -204,7 +245,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.rs232_btn.clicked.connect(lambda: self._run_test("rs232"))
         self._register_button_cursor(self.rs232_btn)
 
-        self.rs422_port = QtWidgets.QComboBox()
+        self.rs422_port = RefreshingCombo(self._refresh_single_combo)
         self.rs422_port.setMinimumHeight(btn_height)
         self.rs422_status = StatusLabel(scale=self.ui_scale)
         self.rs422_btn = QtWidgets.QPushButton("RS422 Test")
@@ -225,33 +266,108 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.stlink_status, 0, 3)
 
         grid.addWidget(QtWidgets.QLabel("USB (Firmware)"), 1, 0)
-        grid.addWidget(self.usb_port, 1, 1)
-        grid.addWidget(self.usb_btn, 1, 2)
+        grid.addWidget(self.usb_btn, 1, 1, 1, 2)
         grid.addWidget(self.usb_status, 1, 3)
 
-        grid.addWidget(QtWidgets.QLabel("RS485 COM"), 2, 0)
-        grid.addWidget(self.rs485_port, 2, 1)
-        grid.addWidget(self.rs485_btn, 2, 2)
-        grid.addWidget(self.rs485_status, 2, 3)
+        grid.addWidget(QtWidgets.QLabel("GPIO"), 2, 0)
+        grid.addWidget(self.gpio_btn, 2, 1, 1, 2)
+        grid.addWidget(self.gpio_status, 2, 3)
 
-        grid.addWidget(QtWidgets.QLabel("RS232 COM"), 3, 0)
-        grid.addWidget(self.rs232_port, 3, 1)
-        grid.addWidget(self.rs232_btn, 3, 2)
-        grid.addWidget(self.rs232_status, 3, 3)
+        grid.addWidget(QtWidgets.QLabel("RS485 COM"), 3, 0)
+        grid.addWidget(self.rs485_port, 3, 1)
+        grid.addWidget(self.rs485_btn, 3, 2)
+        grid.addWidget(self.rs485_status, 3, 3)
 
-        grid.addWidget(QtWidgets.QLabel("RS422 COM"), 4, 0)
-        grid.addWidget(self.rs422_port, 4, 1)
-        grid.addWidget(self.rs422_btn, 4, 2)
-        grid.addWidget(self.rs422_status, 4, 3)
+        grid.addWidget(QtWidgets.QLabel("RS232 COM"), 4, 0)
+        grid.addWidget(self.rs232_port, 4, 1)
+        grid.addWidget(self.rs232_btn, 4, 2)
+        grid.addWidget(self.rs232_status, 4, 3)
 
-        grid.addWidget(QtWidgets.QLabel("Ethernet"), 5, 0)
-        grid.addWidget(self.eth_btn, 5, 1, 1, 2)
-        grid.addWidget(self.eth_status, 5, 3)
+        grid.addWidget(QtWidgets.QLabel("RS422 COM"), 5, 0)
+        grid.addWidget(self.rs422_port, 5, 1)
+        grid.addWidget(self.rs422_btn, 5, 2)
+        grid.addWidget(self.rs422_status, 5, 3)
+
+        grid.addWidget(QtWidgets.QLabel("LCD/Backlight"), 6, 0)
+        grid.addWidget(self.lcd_btn, 6, 1, 1, 2)
+        grid.addWidget(self.lcd_status, 6, 3)
+
+        grid.addWidget(QtWidgets.QLabel("Ethernet"), 7, 0)
+        grid.addWidget(self.eth_btn, 7, 1, 1, 2)
+        grid.addWidget(self.eth_status, 7, 3)
+
+        return group
+
+    def _build_usb_options(self) -> QtWidgets.QGroupBox:
+        group = QtWidgets.QGroupBox()
+        group.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
+        grid = QtWidgets.QGridLayout(group)
+        grid.setHorizontalSpacing(int(10 * self.ui_scale))
+        grid.setVerticalSpacing(int(6 * self.ui_scale))
+        grid.setColumnStretch(1, 1)
+
+        self.usb_fw_path = QtWidgets.QLineEdit()
+        self.usb_fw_path.setPlaceholderText("Select firmware file to flash")
+        self.usb_fw_path.setMinimumHeight(int(28 * self.ui_scale))
+        self.usb_fw_path.setText(str(Path("bin/firmware_ctp.orig")))
+        self.usb_browse_btn = QtWidgets.QPushButton("Browse...")
+        self.usb_browse_btn.setMinimumHeight(int(28 * self.ui_scale))
+        self.usb_browse_btn.clicked.connect(self._choose_usb_file)
+        self._register_button_cursor(self.usb_browse_btn)
+
+        self.usb_action_combo = QtWidgets.QComboBox()
+        self.usb_action_combo.setMinimumHeight(int(28 * self.ui_scale))
+        self.usb_action_combo.addItem("MP Firmware", userData="mpfw")
+        self.usb_action_combo.addItem("Loader", userData="loader")
+        self.usb_action_combo.addItem("CB Firmware", userData="cb")
+        self.usb_action_combo.addItem("ADE/Data", userData="ade")
+        self.usb_action_combo.addItem("Factory Reset", userData="reset")
+        self.usb_action_combo.setCurrentIndex(0)
+
+        self.usb_variant_ctp = QtWidgets.QCheckBox("CTP")
+        self.usb_variant_rtp = QtWidgets.QCheckBox("RTP")
+        for btn in (self.usb_variant_ctp, self.usb_variant_rtp):
+            btn.setMinimumHeight(int(28 * self.ui_scale))
+            self._register_button_cursor(btn)
+        self.usb_variant_ctp.clicked.connect(lambda checked: self._set_usb_variant("ctp"))
+        self.usb_variant_rtp.clicked.connect(lambda checked: self._set_usb_variant("rtp"))
+
+        self.usb_verify_box = QtWidgets.QCheckBox("Verify board info")
+        self.usb_verify_box.setChecked(False)
+
+        self.usb_info_btn = QtWidgets.QPushButton("Read Board Info")
+        self.usb_info_btn.setMinimumHeight(int(28 * self.ui_scale))
+        self.usb_info_btn.clicked.connect(self._handle_board_info_request)
+        self._register_button_cursor(self.usb_info_btn)
+
+        self.usb_board_info_label = QtWidgets.QLabel("Board info: -")
+        self.usb_board_info_label.setWordWrap(True)
+
+        grid.addWidget(QtWidgets.QLabel("Firmware File"), 0, 0)
+        grid.addWidget(self.usb_fw_path, 0, 1)
+        grid.addWidget(self.usb_browse_btn, 0, 2)
+
+        grid.addWidget(QtWidgets.QLabel("USB Action"), 1, 0)
+        grid.addWidget(self.usb_action_combo, 1, 1)
+        variant_layout = QtWidgets.QHBoxLayout()
+        variant_layout.setContentsMargins(0, 0, 0, 0)
+        variant_layout.setSpacing(int(6 * self.ui_scale))
+        variant_layout.addWidget(self.usb_variant_ctp)
+        variant_layout.addWidget(self.usb_variant_rtp)
+        variant_box = QtWidgets.QWidget()
+        variant_box.setLayout(variant_layout)
+        grid.addWidget(variant_box, 1, 2)
+
+        grid.addWidget(self.usb_verify_box, 2, 0)
+
+        grid.addWidget(self.usb_info_btn, 2, 1)
+        grid.addWidget(self.usb_board_info_label, 2, 2)
 
         return group
 
     def _build_log_panel(self) -> QtWidgets.QWidget:
         group = QtWidgets.QGroupBox()
+        group.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Expanding)
         layout = QtWidgets.QVBoxLayout(group)
         self.log_box = QtWidgets.QPlainTextEdit()
         self.log_box.setReadOnly(True)
@@ -272,6 +388,105 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.submit_btn)
         return widget
 
+    def _append_downloader_message(self, message: str) -> None:
+        append_log(self.log_box, message)
+
+    def _on_usb_save_log(self, action: str) -> None:
+        append_log(self.log_box, f"USB action saved: {action}")
+
+    def _check_serial_input(self) -> None:
+        text = self.serial_edit.text().strip()
+        if not text:
+            self.serial_checked = False
+            append_log(self.log_box, "Please enter S/N code before checking.")
+            self._set_interactive_enabled(False)
+            self.submit_btn.setEnabled(False)
+            return
+        self.serial_checked = True
+        append_log(self.log_box, f"S/N check passed: {text}")
+        if not self.active_test and self.tests_enabled:
+            self._set_interactive_enabled(True)
+        self.submit_btn.setEnabled(self.tests_enabled and self.serial_checked and not self.active_test)
+
+    def _on_serial_changed(self) -> None:
+        if self.serial_checked:
+            self.serial_checked = False
+            self._set_interactive_enabled(False)
+            self.submit_btn.setEnabled(False)
+
+    def _set_usb_controls_enabled(self, enabled: bool) -> None:
+        widgets = [
+            self.usb_btn,
+            self.usb_fw_path,
+            self.usb_browse_btn,
+            self.usb_action_combo,
+            self.usb_verify_box,
+            self.usb_info_btn,
+        ]
+        for widget in widgets:
+            widget.setEnabled(enabled)
+        self._refresh_all_button_cursors()
+
+    def _handle_board_info_request(self) -> None:
+        if not getattr(self, "usb_controller", None):
+            append_log(self.log_box, "USB controller not ready.")
+            return
+        if not self.logged_in:
+            append_log(self.log_box, "Please login first.")
+            return
+        if self.active_test:
+            append_log(self.log_box, "Another test is active; please wait before reading board info.")
+            return
+        if not self.usb_controller.read_board_info():
+            append_log(self.log_box, "USB downloader is busy, cannot read board info.")
+
+    def handle_board_info(self, board_info: dict) -> None:
+        try:
+            resv = board_info.get("version_reserved", "")
+            res_a = resv[0:1] if len(resv) > 0 else ""
+            res_b = resv[1:2] if len(resv) > 1 else ""
+            res_c = resv[2:3] if len(resv) > 2 else ""
+            text = (
+                f"ser: {board_info.get('board_series', '')}, "
+                f"ver: {board_info.get('board_version', '')}, "
+                f"prod: {board_info.get('product_type', '')}, "
+                f"size: {board_info.get('lcd_size', '')}, "
+                f"res: {board_info.get('lcd_hor_res', '')}x{board_info.get('lcd_ver_res', '')}, "
+                f"color: {board_info.get('lcd_color_depth', '')}, "
+                f"touch: {board_info.get('lcd_touch_type', '')}, "
+                f"lcd: {board_info.get('lcd_vendor', '')}, "
+                f"comm: {res_a}, mem: {res_b}, resv: {res_c}"
+            )
+            self.usb_board_info_label.setText(f"Board info: {text}")
+            append_log(self.log_box, text)
+        except Exception as exc:  # pragma: no cover - runtime protection
+            append_log(self.log_box, f"Failed to parse board info: {exc}")
+
+    def _choose_usb_file(self) -> None:
+        select_mode = self.usb_action_combo.currentData()
+        if select_mode == "mpfw":
+            filter_path = "Firmware Files (*.orig);;All Files (*.*)"
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self, "Select MP Firmware File", "", filter_path
+            )
+        elif select_mode == "loader":
+            filter_path = "ELF Files (*.elf);;All Files (*.*)"
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self, "Select Loader ELF File", "", filter_path
+            )
+        elif select_mode == "cb":
+            filter_path = "CB Firmware Files (*.cb);;All Files (*.*)"
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self, "Select CB Firmware File", "", filter_path
+            )
+        elif select_mode == "ade":
+            filter_path = "ADE/Data Files (*.cpio);;All Files (*.*)"
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self, "Select ADE/Data File", "", filter_path
+            )
+        if path:
+            self.usb_fw_path.setText(path)
+
     # Logic handlers
     def _handle_login_success(self, user: str, password: str) -> None:
         self.logged_in = True
@@ -284,20 +499,23 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.logged_in = False
         self._enable_tests(False)
         self._reset_results()
+        self.serial_checked = False
         append_log(self.log_box, "Logged out. Please login again to continue.")
     def _enable_tests(self, enable: bool) -> None:
         self.tests_enabled = enable
         if self.active_test:
             self._set_interactive_enabled(False)
         else:
-            self._set_interactive_enabled(enable)
-        self.submit_btn.setEnabled(enable and not self.active_test)
+            self._set_interactive_enabled(enable and self.serial_checked)
+        self.submit_btn.setEnabled(enable and self.serial_checked and not self.active_test)
         self._refresh_button_cursor(self.submit_btn)
 
     def _reset_results(self) -> None:
         for key, label in [
             ("stlink", self.stlink_status),
             ("usb", self.usb_status),
+            ("gpio", self.gpio_status),
+            ("lcd", self.lcd_status),
             ("rs485", self.rs485_status),
             ("rs232", self.rs232_status),
             ("rs422", self.rs422_status),
@@ -310,7 +528,18 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
     def _set_interactive_enabled(self, enable: bool) -> None:
         controls = {
             "stlink": [self.stlink_btn],
-            "usb": [self.usb_btn, self.usb_port],
+            "usb": [
+                self.usb_btn,
+                self.usb_fw_path,
+                self.usb_browse_btn,
+                self.usb_action_combo,
+                self.usb_variant_ctp,
+                self.usb_variant_rtp,
+                self.usb_verify_box,
+                self.usb_info_btn,
+            ],
+            "gpio": [self.gpio_btn],
+            "lcd": [self.lcd_btn],
             "rs485": [self.rs485_btn, self.rs485_port],
             "rs232": [self.rs232_btn, self.rs232_port],
             "rs422": [self.rs422_btn, self.rs422_port],
@@ -325,16 +554,51 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         ports = available_ports()
         if not ports:
             append_log(self.log_box, "No COM port found. Please ensure pyserial is installed.")
-        for combo in [self.usb_port, self.rs485_port, self.rs232_port, self.rs422_port]:
+        for combo in [self.rs485_port, self.rs232_port, self.rs422_port]:
             populate_combo(combo, ports)
+
+    def _refresh_single_combo(self, combo: QtWidgets.QComboBox) -> None:
+        ports = available_ports()
+        populate_combo(combo, ports)
+
+    def _setup_usb_controller(self) -> None:
+        self.usb_controller = usb_firmware.UsbFirmwareController(
+            message_handler=self._append_downloader_message,
+            enable_handler=self._set_usb_controls_enabled,
+            board_info_handler=self.handle_board_info,
+            save_log_handler=self._on_usb_save_log,
+        )
+        # Restore saved variant selection
+        variant = getattr(self.user_config, "usb_variant", "ctp")
+        self._set_usb_variant(variant)
+
+    def _set_usb_variant(self, variant: str) -> None:
+        variant = (variant or "ctp").lower()
+        if variant == "rtp":
+            self.usb_variant_ctp.setChecked(False)
+            self.usb_variant_rtp.setChecked(True)
+            self.usb_fw_path.setText(str(Path("bin/firmware_rtp.orig")))
+            self.user_config.usb_variant = "rtp"
+        else:
+            self.usb_variant_ctp.setChecked(True)
+            self.usb_variant_rtp.setChecked(False)
+            self.usb_fw_path.setText(str(Path("bin/firmware_ctp.orig")))
+            self.user_config.usb_variant = "ctp"
+        save_user_config(self.user_config)
+
     def _run_test(self, key: str) -> None:
         if not self.logged_in:
             append_log(self.log_box, "Please login first.")
+            return
+        if not self.serial_checked:
+            append_log(self.log_box, "Please enter S/N code and press Check before running tests.")
             return
 
         status_label = {
             "stlink": self.stlink_status,
             "usb": self.usb_status,
+            "gpio": self.gpio_status,
+            "lcd": self.lcd_status,
             "rs485": self.rs485_status,
             "rs232": self.rs232_status,
             "rs422": self.rs422_status,
@@ -348,12 +612,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             com_port = self.rs232_port.currentData()
         elif key == "rs422":
             com_port = self.rs422_port.currentData()
-        elif key == "usb":
-            com_port = self.usb_port.currentData()
 
-        if key == "usb" and not com_port:
-            append_log(self.log_box, "Please select the USB target before testing.")
-            return
         if key in ("rs485", "rs232", "rs422") and not com_port:
             append_log(self.log_box, "Please select the correct COM port before testing.")
             return
@@ -385,7 +644,35 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
                 return
             stlink.run_stlink(lambda passed, detail: self._finish_test(key, passed, detail))
         elif key == "usb":
-            usb_firmware.run_usb_flash(lambda passed, detail: self._finish_test(key, passed, detail))
+            action = self.usb_action_combo.currentData()
+            firmware_path = self.usb_fw_path.text().strip()
+            verify_board = self.usb_verify_box.isChecked()
+            needs_file = action in {"loader", "mpfw", "cb", "ade"}
+            if needs_file and not firmware_path:
+                detail = "Firmware file missing for USB flash."
+                append_log(self.log_box, detail)
+                QtCore.QTimer.singleShot(
+                    0, lambda: self._finish_test(key, False, detail)
+                )
+                return
+            started = self.usb_controller.start_flash(
+                action=action,
+                file_path=firmware_path,
+                verify_board=verify_board,
+                callback=lambda passed, detail: self._finish_test(key, passed, detail),
+            )
+            if not started:
+                QtCore.QTimer.singleShot(
+                    0, lambda: self._finish_test(key, False, "USB downloader busy.")
+                )
+        elif key == "gpio":
+            QtCore.QTimer.singleShot(
+                800, lambda: self._finish_test(key, True, f"{action_name} completed")
+            )
+        elif key == "lcd":
+            QtCore.QTimer.singleShot(
+                800, lambda: self._finish_test(key, True, f"{action_name} completed")
+            )
         else:
             QtCore.QTimer.singleShot(
                 800,
@@ -398,9 +685,11 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         status_label = {
             "stlink": self.stlink_status,
             "usb": self.usb_status,
+            "gpio": self.gpio_status,
             "rs485": self.rs485_status,
             "rs232": self.rs232_status,
             "rs422": self.rs422_status,
+            "lcd": self.lcd_status,
             "ethernet": self.eth_status,
         }[key]
 
@@ -412,8 +701,8 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             append_log(self.log_box, detail)
         append_log(self.log_box, f"{self.results[key].name}: {status_text} - {detail}")
         self.active_test = None
-        self._set_interactive_enabled(self.tests_enabled)
-        self.submit_btn.setEnabled(self.tests_enabled)
+        self._set_interactive_enabled(self.tests_enabled and self.serial_checked)
+        self.submit_btn.setEnabled(self.tests_enabled and self.serial_checked)
         self._refresh_button_cursor(self.submit_btn)
 
     def _submit_results(self) -> None:
@@ -579,4 +868,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

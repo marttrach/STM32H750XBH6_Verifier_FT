@@ -13,6 +13,7 @@ class UserConfig:
     username: str = DEFAULT_USERNAME
     password: str = DEFAULT_PASSWORD
     theme: str = "light"
+    usb_variant: str = "ctp"
 
 
 def load_user_config() -> UserConfig:
@@ -24,6 +25,7 @@ def load_user_config() -> UserConfig:
                     username=data.get("username", DEFAULT_USERNAME),
                     password=data.get("password", DEFAULT_PASSWORD),
                     theme=data.get("theme", "light"),
+                    usb_variant=data.get("usb_variant", "ctp"),
                 )
         except (OSError, ValueError, json.JSONDecodeError):
             pass

@@ -1,5 +1,6 @@
 {
   "username": "admin",
   "password": "password",
-  "theme": "light"
+  "theme": "light",
+  "usb_variant": "ctp"
 }

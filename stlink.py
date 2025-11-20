@@ -48,7 +48,7 @@ else:
     _CUBEPROG_IMPORT_ERROR = f"Local CubeProgrammer API not found at {LOCAL_CUBEPROG}"
 
 
-DEFAULT_ELF = Path("bootloader.elf")
+DEFAULT_ELF = Path("bin/bootloader.elf")
 DEFAULT_FREQ_KHZ = 4000
 DEFAULT_RESET = "software"
 DEFAULT_ADDRESS = "0x08000000"

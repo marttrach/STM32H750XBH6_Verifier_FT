@@ -11,10 +11,10 @@ class LoginPanel(QtWidgets.QGroupBox):
     def __init__(
         self,
         scale: float,
-        on_login: Callable[[str], None],
+        on_login: Callable[[str, str], None],
         on_logout: Callable[[], None],
     ) -> None:
-        super().__init__("登入")
+        super().__init__("")
         self.on_login = on_login
         self.on_logout = on_logout
         self.logged_in = False
@@ -23,55 +23,55 @@ class LoginPanel(QtWidgets.QGroupBox):
         self.username_edit = QtWidgets.QLineEdit(DEFAULT_USERNAME)
         self.password_edit = QtWidgets.QLineEdit(DEFAULT_PASSWORD)
         self.password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-        self.login_btn = QtWidgets.QPushButton("Login")
-        self.login_btn.clicked.connect(self._handle_login)
-        self.logout_btn = QtWidgets.QPushButton("Logout")
-        self.logout_btn.clicked.connect(self._handle_logout)
-        self.logout_btn.setEnabled(False)
-        self.login_status = QtWidgets.QLabel("未登入")
+        self.action_btn = QtWidgets.QPushButton("Login")
+        self.action_btn.clicked.connect(self._handle_action)
+        self.password_edit.returnPressed.connect(self._handle_action)
+        self.login_status = QtWidgets.QLabel("Not logged in")
         self.login_status.setStyleSheet("color: #c93c37; font-weight: bold;")
 
         for w in [
             self.username_edit,
             self.password_edit,
-            self.login_btn,
-            self.logout_btn,
+            self.action_btn,
         ]:
             w.setMinimumHeight(int(28 * scale))
 
-        form.addWidget(QtWidgets.QLabel("使用者"), 0, 0)
+        form.addWidget(QtWidgets.QLabel("Username"), 0, 0)
         form.addWidget(self.username_edit, 0, 1)
-        form.addWidget(QtWidgets.QLabel("密碼"), 1, 0)
+        form.addWidget(QtWidgets.QLabel("Password"), 1, 0)
         form.addWidget(self.password_edit, 1, 1)
-        form.addWidget(self.login_btn, 0, 2, 2, 1)
-        form.addWidget(self.logout_btn, 0, 3, 2, 1)
-        form.addWidget(self.login_status, 0, 4, 2, 1)
+        form.addWidget(self.action_btn, 0, 2, 2, 1)
+        form.addWidget(self.login_status, 0, 3, 2, 1)
+
+    def _handle_action(self) -> None:
+        if self.logged_in:
+            self._handle_logout()
+        else:
+            self._handle_login()
 
     def _handle_login(self) -> None:
         username = self.username_edit.text().strip()
         password = self.password_edit.text().strip()
         if username == DEFAULT_USERNAME and password == DEFAULT_PASSWORD:
             self.logged_in = True
-            self.login_status.setText("已登入")
+            self.login_status.setText("Logged in")
             self.login_status.setStyleSheet("color: #1a7f37; font-weight: bold;")
-            self.login_btn.setEnabled(False)
-            self.logout_btn.setEnabled(True)
             self.username_edit.setEnabled(False)
             self.password_edit.setEnabled(False)
+            self.action_btn.setText("Logout")
             if self.on_login:
-                self.on_login(username)
+                self.on_login(username, password)
         else:
-            self.login_status.setText("未登入")
+            self.login_status.setText("Not logged in")
             self.login_status.setStyleSheet("color: #c93c37; font-weight: bold;")
 
     def _handle_logout(self) -> None:
         self.logged_in = False
-        self.login_status.setText("未登入")
+        self.login_status.setText("Not logged in")
         self.login_status.setStyleSheet("color: #c93c37; font-weight: bold;")
-        self.login_btn.setEnabled(True)
-        self.logout_btn.setEnabled(False)
         self.username_edit.setEnabled(True)
         self.password_edit.setEnabled(True)
+        self.action_btn.setText("Login")
         if self.on_logout:
             self.on_logout()
 
@@ -80,3 +80,10 @@ class LoginPanel(QtWidgets.QGroupBox):
 
     def current_user(self) -> str:
         return self.username_edit.text().strip()
+
+    def current_password(self) -> str:
+        return self.password_edit.text().strip()
+
+    def prefill_credentials(self, username: setattr) -> None:
+        if username:
+            self.username_edit.setText(username)

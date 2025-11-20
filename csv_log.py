@@ -6,11 +6,12 @@ from typing import Dict
 from global_utility import RESULTS_FILE, TestResult
 
 
-def submit_results(user: str, results: Dict[str, TestResult]) -> Path:
+def submit_results(user: str, serial_number: str, results: Dict[str, TestResult]) -> Path:
     timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     row = {
         "timestamp": timestamp,
         "user": user,
+        "serial_number": serial_number,
     }
     for key, result in results.items():
         row[result.name] = result.status

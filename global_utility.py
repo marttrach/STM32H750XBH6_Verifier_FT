@@ -19,7 +19,7 @@ BASE_HEIGHT = 720
 @dataclass
 class TestResult:
     name: str
-    status: str = "待測"
+    status: str = "IDLE"
     detail: str = ""
 
 
@@ -27,13 +27,13 @@ class StatusLabel(QtWidgets.QLabel):
     """Small helper to color-code status labels."""
 
     COLORS = {
-        "待測": "#808080",
-        "進行中": "#1f5fbf",
+        "IDLE": "#808080",
+        "RUNNING": "#1f5fbf",
         "PASS": "#1a7f37",
         "FAIL": "#c93c37",
     }
 
-    def __init__(self, text: str = "待測", scale: float = 1.0) -> None:
+    def __init__(self, text: str = "IDLE", scale: float = 1.0) -> None:
         super().__init__(text)
         self.scale = scale
         self.setAlignment(QtCore.Qt.AlignCenter)
@@ -88,20 +88,102 @@ def resize_by_scale(window: QtWidgets.QWidget, scale: float) -> None:
 def theme_stylesheet(mode: str) -> str:
     if mode == "dark":
         return """
-            QWidget { background: #202124; color: #e8eaed; }
-            QLineEdit { background: #2b2f36; color: #e8eaed; }
-            QComboBox { background: #2b2f36; color: #e8eaed; }
-            QPushButton { background: #3c4043; color: #e8eaed; }
-            QGroupBox { border: 1px solid #3c4043; margin-top: 8px; }
-            QPlainTextEdit { background: #0f1115; color: #d1d5db; }
+            QWidget {
+                background: #202124;
+                color: #e8eaed;
+                font-family: "Microsoft JhengHei", "Segoe UI", "Noto Sans", sans-serif;
+            }
+            QLineEdit, QComboBox {
+                background: #2b2f36;
+                color: #e8eaed;
+                border: 1px solid #3c4043;
+                border-radius: 6px;
+                padding: 4px 8px;
+            }
+            QLineEdit:disabled, QComboBox:disabled {
+                background: #1f2227;
+                color: #8e9399;
+            }
+            QPushButton {
+                background: #3c4043;
+                color: #e8eaed;
+                border: 1px solid #5f6368;
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: 600;
+            }
+            QPushButton:enabled:hover {
+                background: #4a4f55;
+            }
+            QPushButton:enabled:pressed {
+                background: #5f6368;
+            }
+            QPushButton:disabled {
+                background: #2b2f36;
+                color: #7b8087;
+                border-color: #3a3d42;
+            }
+            QGroupBox {
+                border: 1px solid #3c4043;
+                border-radius: 12px;
+                margin-top: 16px;
+                padding: 16px;
+            }
+            QPlainTextEdit {
+                background: #0f1115;
+                color: #d1d5db;
+                border-radius: 10px;
+                padding: 8px;
+            }
         """
     return """
-        QWidget { background: #f5f6fb; color: #1f2937; }
-        QLineEdit { background: #ffffff; color: #111827; }
-        QComboBox { background: #ffffff; color: #111827; }
-        QPushButton { background: #e5e7eb; color: #111827; }
-        QGroupBox { border: 1px solid #d1d5db; margin-top: 8px; }
-        QPlainTextEdit { background: #ffffff; color: #111827; }
+        QWidget {
+            background: #f5f6fb;
+            color: #1f2937;
+            font-family: "Microsoft JhengHei", "Segoe UI", "Noto Sans", sans-serif;
+        }
+        QLineEdit, QComboBox {
+            background: #ffffff;
+            color: #111827;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 4px 8px;
+        }
+        QLineEdit:disabled, QComboBox:disabled {
+            background: #f3f4f6;
+            color: #9ca3af;
+        }
+        QPushButton {
+            background: #e5e7eb;
+            color: #111827;
+            border: 1px solid #cfd5df;
+            border-radius: 6px;
+            padding: 6px 14px;
+            font-weight: 600;
+        }
+        QPushButton:enabled:hover {
+            background: #d5dbeb;
+        }
+        QPushButton:enabled:pressed {
+            background: #c1c9dd;
+        }
+        QPushButton:disabled {
+            background: #f3f4f6;
+            color: #b0b5c2;
+            border-color: #e5e7eb;
+        }
+        QGroupBox {
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            margin-top: 16px;
+            padding: 16px;
+        }
+        QPlainTextEdit {
+            background: #ffffff;
+            color: #111827;
+            border-radius: 10px;
+            padding: 8px;
+        }
     """
 
 

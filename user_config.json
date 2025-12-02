@@ -2,5 +2,16 @@
   "username": "admin",
   "password": "password",
   "theme": "light",
-  "usb_variant": "ctp"
+  "usb_variant": "ctp",
+  "selected_tests": [
+    "stlink",
+    "usb",
+    "rs485",
+    "rs232",
+    "rs422"
+  ],
+  "rs485_port": "COM69",
+  "rs232_port": "COM70",
+  "rs422_port": "COM77",
+  "esp32_port": "COM22"
 }

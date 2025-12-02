@@ -49,11 +49,24 @@ class UsbFirmwareController(QtCore.QObject):
         self.d.finished.connect(self._on_finished)
 
     # Public API ---------------------------------------------------------
+    def reenumerate_port(self) -> bool:
+        """
+        Request a USB re-enumeration on the current STM32 port.
+        Returns False on failure.
+        """
+        try:
+            return self.d.reenumerate_com_port()
+        except Exception as exc:  # pragma: no cover - defensive
+            self._handle_message(f"error: failed to re-enumerate USB ({exc})")
+            return False
+
     def start_flash(
         self,
         *,
         action: str,
         file_path: Optional[str],
+        ade_path: Optional[str] = None,
+        cb_path: Optional[str] = None,
         verify_board: bool = False,
         need_log: bool = True,
         callback: Optional[UsbCallback] = None,
@@ -66,6 +79,8 @@ class UsbFirmwareController(QtCore.QObject):
             self._handle_message("USB downloader is busy, please wait...")
             return False
 
+        ade_path = ade_path or ""
+        cb_path = cb_path or file_path or ""
         requires_file = action in {"loader", "mpfw", "cb", "ade"}
         if requires_file:
             path = Path(file_path or "")
@@ -91,6 +106,8 @@ class UsbFirmwareController(QtCore.QObject):
                 action,
                 need_log=need_log,
                 file_path=file_path,
+                ade_file_path=ade_path,
+                cb_file_path=cb_path,
                 varify_board=verify_board,
             )
             self.d.start()
@@ -129,6 +146,9 @@ class UsbFirmwareController(QtCore.QObject):
             or lowered.startswith("!!!")
             or "fail" in lowered
             or "no suitable port found" in lowered
+            or "file not exist" in lowered
+            or "abort sequence" in lowered
+            or "mode error" in lowered
         ):
             self._saw_error = True
         if "# transfer completely" in lowered:
@@ -139,6 +159,16 @@ class UsbFirmwareController(QtCore.QObject):
             self._cb_flash_ok = True
         if "[flash ade] flash project done" in lowered:
             self._ade_flash_ok = True
+        if "ade/data flashing result" in lowered:
+            if "true" in lowered:
+                self._ade_flash_ok = True
+            else:
+                self._saw_error = True
+        if "cb flashing result" in lowered:
+            if "true" in lowered:
+                self._cb_flash_ok = True
+            else:
+                self._saw_error = True
         self._last_detail = text
         self._message_handler(text)
 

@@ -1,5 +1,7 @@
 /.venv
 /__pycache__
 iot_downloader_ft.py
+power_log.csv
+user_config.json
 /stm32cubeprog/__pycache__
 /bin/*

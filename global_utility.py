@@ -156,6 +156,43 @@ def theme_stylesheet(mode: str) -> str:
                 border-radius: 10px;
                 padding: 8px;
             }
+            QMenuBar {
+                background: transparent;
+                border: none;
+                spacing: 8px;
+            }
+            QMenuBar::item {
+                padding: 4px 10px;
+                color: #e8eaed;
+            }
+            QMenuBar::item:selected {
+                background: #32363b;
+                border-radius: 6px;
+            }
+            QMenu {
+                background: #2b2f36;
+                border: 1px solid #3c4043;
+                border-radius: 8px;
+                padding: 6px 0;
+            }
+            QMenu::item {
+                padding: 6px 14px;
+                color: #e8eaed;
+                border-bottom: 1px solid #3c4043;
+            }
+            QMenu::item:selected {
+                background: #3c4043;
+                border-radius: 4px;
+                border-bottom: 1px solid #3c4043;
+            }
+            QMenu::item:disabled {
+                color: #6f747c;
+                background: #24272c;
+                border-bottom: 1px solid #3a3d42;
+            }
+            QMenu::item:last-of-type {
+                border-bottom: none;
+            }
         """
     return """
         QWidget {
@@ -225,6 +262,43 @@ def theme_stylesheet(mode: str) -> str:
             color: #111827;
             border-radius: 10px;
             padding: 8px;
+        }
+        QMenuBar {
+            background: transparent;
+            border: none;
+            spacing: 8px;
+        }
+        QMenuBar::item {
+            padding: 4px 10px;
+            color: #1f2937;
+        }
+        QMenuBar::item:selected {
+            background: #e5e7eb;
+            border-radius: 6px;
+        }
+        QMenu {
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            padding: 6px 0;
+        }
+        QMenu::item {
+            padding: 6px 14px;
+            color: #1f2937;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        QMenu::item:selected {
+            background: #e5e7eb;
+            border-radius: 4px;
+            border-bottom: 1px solid #d1d5db;
+        }
+        QMenu::item:disabled {
+            color: #a0a7b3;
+            background: #f3f4f6;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        QMenu::item:last-of-type {
+            border-bottom: none;
         }
     """
 

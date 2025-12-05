@@ -18,7 +18,7 @@ def available_ports() -> List[str]:
         print("[COM-DEBUG] pyserial not installed; available_ports empty.")
         return []
     ports = [p.device for p in list_ports.comports()]
-    print(f"[COM-DEBUG] Detected ports: {ports}")
+    # print(f"[COM-DEBUG] Detected ports: {ports}")
     return ports
 
 

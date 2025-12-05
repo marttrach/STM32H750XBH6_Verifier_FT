@@ -3,6 +3,8 @@
 以 PySide6 (LGPL) 建立的生產線測試介面，涵蓋登入、燒錄、序列埠測試、日誌與提交紀錄等功能。請依實際量產需求串接 STLink/DFU/串口測試流程。
 
 ## 開發記錄
+- v0.6: UI 更動 & GPIO/Ethernet 測試功能建立, 流程穩定
+- v0.5: Serial/LCD 測試功能建立
 - v0.4: USB Firmware 功能建立
 - v0.3: STM32CubeProgrammer Api 建立
 - v0.2: 新增 Light/Dark 切換、登出、雙重關閉確認、響應式縮放、工具列選單 (Import/Export/Exit、License、About)。

@@ -60,6 +60,17 @@ class UsbFirmwareController(QtCore.QObject):
             self._handle_message(f"error: failed to re-enumerate USB ({exc})")
             return False
 
+    def send_ctrl_d(self) -> bool:
+        """Send Ctrl+D to DUT when it is in MP mode; returns False on failure/busy."""
+        if self.d.isRunning():
+            self._handle_message("USB downloader is busy, please wait...")
+            return False
+        try:
+            return self.d.send_ctrl_d()
+        except Exception as exc:  # pragma: no cover - defensive
+            self._handle_message(f"error: failed to send Ctrl+D ({exc})")
+            return False
+
     def start_flash(
         self,
         *,

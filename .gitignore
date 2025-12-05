@@ -5,3 +5,7 @@ power_log.csv
 user_config.json
 /stm32cubeprog/__pycache__
 /bin/*
+/LOG
+/DEBUG_LOG
+*.txt
+settings.json

@@ -47,6 +47,7 @@ class AppSettings:
     station: str = "TEST_7M89"
     fixture_id: str = "TEST_FT_7M89"
     program_name: str = "Toppan 7M89"
+    flashback_fw_label: str = "V1.0_251027"
     mes_enabled: bool = False
     theme: str = "light"
     stop_fail: bool = False
@@ -138,6 +139,7 @@ def load_settings(path: Path = SETTINGS_FILE) -> AppSettings:
         station=data.get("station", "TEST_7M89"),
         fixture_id=data.get("fixture_id", "TEST_FT_7M89"),
         program_name=data.get("program_name", "Toppan 7M89"),
+        flashback_fw_label=str(data.get("flashback_fw_label", "V1.0_251027") or "V1.0_251027"),
         mes_enabled=bool(data.get("mes_enabled", False)),
         theme=(data.get("theme", legacy_user.get("theme", "light")) or "light"),
         power=power,
@@ -174,6 +176,7 @@ def save_settings(settings: AppSettings, path: Path = SETTINGS_FILE) -> None:
         "station": settings.station,
         "fixture_id": settings.fixture_id,
         "program_name": settings.program_name,
+        "flashback_fw_label": settings.flashback_fw_label,
         "mes_enabled": settings.mes_enabled,
         "theme": settings.theme,
         "stop_fail": settings.stop_fail,
@@ -231,9 +234,11 @@ class SettingDialog(QtWidgets.QDialog):
         self.max_fail_edit = QtWidgets.QLineEdit(str(self.settings.max_fail))
         self.max_fail_edit.setValidator(QtGui.QIntValidator(1, 999, self))
         self.max_fail_edit.setMaximumWidth(80)
+        self.flashback_fw_edit = QtWidgets.QLineEdit(self.settings.flashback_fw_label or "")
         # USB options moved here
         self.usb_custom_box = QtWidgets.QCheckBox("Customize USB Flash")
         self.usb_custom_box.setChecked(bool(self.settings.usb_custom))
+        self.usb_custom_box.toggled.connect(self._apply_usb_custom_state)
         self.usb_action_combo = QtWidgets.QComboBox()
         self.usb_action_combo.addItem("MP Firmware", userData="mpfw")
         self.usb_action_combo.addItem("Loader", userData="loader")
@@ -265,15 +270,17 @@ class SettingDialog(QtWidgets.QDialog):
         form.addRow("Skip Test", self.skip_test_checkbox)
         form.addRow("Program Name", self.program_edit)
         form.addRow("Stop on Fail", self.stop_fail_checkbox)
+        form.addRow("FlashBack FW Ver", self.flashback_fw_edit)
         form.addRow("S/N Length Limit", self.sn_len_edit)
         form.addRow("Max Fail per S/N", self.max_fail_edit)
         form.addRow("USB: Customize", self.usb_custom_box)
         form.addRow("USB: Action", self.usb_action_combo)
         form.addRow("USB: Firmware Path", self.usb_fw_path_edit)
-        form.addRow("USB: Variant", self.usb_variant_combo)
+        form.addRow("USB: Touch", self.usb_variant_combo)
         form.addRow("USB: Verify", self.usb_verify_box)
         form.addRow("Theme", self.theme_combo)
         layout.addLayout(form)
+        self._apply_usb_custom_state()
 
         self.dut_reboot_btn = QtWidgets.QPushButton("DUT REBOOT")
         self.dut_reboot_btn.clicked.connect(self._handle_dut_reboot)
@@ -394,6 +401,7 @@ class SettingDialog(QtWidgets.QDialog):
             self.settings.max_fail = int(self.max_fail_edit.text() or 3)
         except ValueError:
             self.settings.max_fail = 3
+        self.settings.flashback_fw_label = self.flashback_fw_edit.text().strip() or self.settings.flashback_fw_label
         self.settings.stop_fail = self.stop_fail_checkbox.isChecked()
         self.settings.skip_tests = self.skip_test_checkbox.isChecked()
         self.settings.usb_custom = self.usb_custom_box.isChecked()
@@ -401,9 +409,18 @@ class SettingDialog(QtWidgets.QDialog):
         self.settings.usb_fw_path = self.usb_fw_path_edit.text().strip()
         self.settings.usb_variant = self.usb_variant_combo.currentData()
         self.settings.usb_verify = self.usb_verify_box.isChecked()
+        # Station and MES station are unified.
+        self.settings.mes_config.station = self.settings.station
         self.settings.power = new_power
         save_settings(self.settings)
         super().accept()
 
     def get_settings(self) -> AppSettings:
         return deepcopy(self.settings)
+
+    def _apply_usb_custom_state(self) -> None:
+        """Enable USB action/path/verify only when custom is checked."""
+        custom_enabled = self.usb_custom_box.isChecked()
+        self.usb_action_combo.setEnabled(custom_enabled)
+        self.usb_fw_path_edit.setEnabled(custom_enabled)
+        self.usb_verify_box.setEnabled(custom_enabled)

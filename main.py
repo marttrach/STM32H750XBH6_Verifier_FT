@@ -3,7 +3,7 @@ PySide6-based factory test fixture UI for STM32 DUTs.
 
 Modules:
 - global_utility: shared constants, scaling, theme, status label.
-- mis_login: login/logout UI.
+- MES: login/logout UI plus MES client scaffolding.
 - com_port: COM port management helpers.
 - stlink: STLink bootloader flashing module.
 - usb_firmware: USB firmware flashing module.
@@ -23,6 +23,7 @@ import shiboken6
 import esp32
 import stlink
 import usb_firmware
+from MES import EmployeeLoginDialog, MesClient
 from com_port import available_ports, populate_combo, run_loopback_test
 from stm32_binary_tool import run_gpio_test, run_lcd_test, run_ethernet_test
 from global_utility import (
@@ -34,15 +35,15 @@ from global_utility import (
     resize_by_scale,
     theme_stylesheet,
 )
-from mis_login import EmployeeLoginDialog
+from cmysql import MySQLClient
 from setting import AppSettings, SettingDialog, load_settings, save_settings, MesConfig, MysqlConfig
 LOG_DIR = Path("LOG")
 
-APP_VERSION = "0.6_00251204"
+APP_VERSION = "0.7_00251208"
 
 
 class SerialNumberDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None, prefill: str = "") -> None:
+    def __init__(self, parent=None, prefill: str = "", theme: str = "light") -> None:
         super().__init__(parent)
         self.setWindowTitle("Serial Number")
         self.setModal(True)
@@ -53,7 +54,9 @@ class SerialNumberDialog(QtWidgets.QDialog):
         layout.setSpacing(3)
         title = QtWidgets.QLabel("Please Input Serial Number")
         title.setAlignment(QtCore.Qt.AlignCenter)
-        title.setStyleSheet("font-size: 18px; font-weight: 800;")
+        dark = (theme or "light").lower() == "dark"
+        title_color = "#e8eaed" if dark else "#1f3b80"
+        title.setStyleSheet(f"font-size: 18px; font-weight: 800; color: {title_color};")
         layout.addWidget(title)
 
         self.edit = QtWidgets.QLineEdit(prefill)
@@ -124,6 +127,8 @@ class MesMysqlDialog(QtWidgets.QDialog):
         self.setModal(True)
         self.setMinimumWidth(520)
         self.settings_copy = copy.deepcopy(settings)
+        # Enforce MES station mirrors app station.
+        self.settings_copy.mes_config.station = self.settings_copy.station
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -141,7 +146,10 @@ class MesMysqlDialog(QtWidgets.QDialog):
         self.mes_un = QtWidgets.QLineEdit(self.settings_copy.mes_config.un)
         self.mes_token = QtWidgets.QLineEdit(self.settings_copy.mes_config.token)
         self.mes_prcs = QtWidgets.QLineEdit(self.settings_copy.mes_config.prcs)
-        self.mes_station = QtWidgets.QLineEdit(self.settings_copy.mes_config.station)
+        self.mes_station = QtWidgets.QLineEdit(self.settings_copy.station)
+        self.mes_station.setReadOnly(True)
+        # Disable to mirror default disabled styling (theme-aware) similar to USB action toggle.
+        self.mes_station.setEnabled(False)
         self.mes_project = QtWidgets.QLineEdit(self.settings_copy.mes_config.project)
         self.mes_base_url = QtWidgets.QLineEdit(self.settings_copy.mes_config.base_url)
         self.mes_check_sn_key = QtWidgets.QLineEdit(self.settings_copy.mes_config.check_sn_key)
@@ -203,7 +211,7 @@ class MesMysqlDialog(QtWidgets.QDialog):
         mc.un = self.mes_un.text().strip()
         mc.token = self.mes_token.text().strip()
         mc.prcs = self.mes_prcs.text().strip()
-        mc.station = self.mes_station.text().strip()
+        mc.station = self.settings_copy.station
         mc.project = self.mes_project.text().strip()
         mc.base_url = self.mes_base_url.text().strip()
         mc.check_sn_key = self.mes_check_sn_key.text().strip()
@@ -251,6 +259,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         resize_by_scale(self, self.ui_scale)
         self.app_settings: AppSettings = copy.deepcopy(app_settings)
         self.employee_no = employee_no.strip()
+        self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or "bootloader_old.elf"
         self.results: Dict[str, TestResult] = {
             "power": TestResult("Power"),
             "stlink": TestResult("STLink (Bootloader)"),
@@ -361,6 +370,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self._refresh_shortcuts_and_toolbar()
         if self.logged_in:
             self._handle_login_success(self.employee_no)
+        self._apply_header_styles()
 
     # UI builders
     def _build_menubar(self) -> None:
@@ -408,17 +418,17 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         # Top row: version | program | clock
         top_row = QtWidgets.QHBoxLayout()
         self.version_label = QtWidgets.QLabel(APP_VERSION)
-        self.version_label.setStyleSheet("font-size: 18px; font-weight: 800; color: #1f3b80;")
+        self.version_label.setStyleSheet("font-size: 18px; font-weight: 800;")
         top_row.addWidget(self.version_label, alignment=QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
 
         self.program_label = QtWidgets.QLabel(self.app_settings.program_name)
         self.program_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.program_label.setStyleSheet("font-size: 20px; font-weight: 800; color: #1f3b80;")
+        self.program_label.setStyleSheet("font-size: 20px; font-weight: 800;")
         top_row.addWidget(self.program_label, stretch=1, alignment=QtCore.Qt.AlignCenter)
 
         self.clock_label = QtWidgets.QLabel("")
         self.clock_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-        self.clock_label.setStyleSheet("font-size: 16px; font-weight: 700; color: #1f3b80;")
+        self.clock_label.setStyleSheet("font-size: 16px; font-weight: 700;")
         top_row.addWidget(self.clock_label, alignment=QtCore.Qt.AlignRight)
         layout.addLayout(top_row)
 
@@ -435,14 +445,14 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         station_label = QtWidgets.QLabel("Station")
         station_label.setStyleSheet("color: #d35400; font-weight: 700;")
         self.station_value_label = QtWidgets.QLabel(self.app_settings.station or "N/A")
-        self.station_value_label.setStyleSheet("color: #1f3b80; font-weight: 700;")
+        self.station_value_label.setStyleSheet("font-weight: 700;")
         left_grid.addWidget(station_label, 0, 0)
         left_grid.addWidget(self.station_value_label, 0, 1)
 
         emp_label = QtWidgets.QLabel("Emp")
         emp_label.setStyleSheet("color: #d35400; font-weight: 700;")
         self.emp_value_label = QtWidgets.QLabel("N/A")
-        self.emp_value_label.setStyleSheet("color: #1f3b80; font-weight: 700;")
+        self.emp_value_label.setStyleSheet("font-weight: 700;")
         left_grid.addWidget(emp_label, 1, 0)
         left_grid.addWidget(self.emp_value_label, 1, 1)
 
@@ -478,8 +488,8 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         right_grid.setHorizontalSpacing(int(8 * self.ui_scale))
         right_grid.setVerticalSpacing(int(6 * self.ui_scale))
 
-        sn_label = QtWidgets.QLabel("S/N")
-        sn_label.setStyleSheet("color: #d35400; font-weight: 700;")
+        self.sn_label = QtWidgets.QLabel("S/N")
+        self.sn_label.setStyleSheet("color: #d35400; font-weight: 700;")
         self.serial_edit = QtWidgets.QLabel("N/A")
         self.serial_edit.setMinimumHeight(max(int(26 * self.ui_scale), 30))
         self.serial_edit.setAlignment(QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft)
@@ -494,20 +504,20 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         sn_row.setSpacing(int(3 * self.ui_scale))
         sn_row.addWidget(self.serial_edit, stretch=1)
         sn_row.addWidget(self.check_sn_btn)
-        right_grid.addWidget(sn_label, 0, 0)
+        right_grid.addWidget(self.sn_label, 0, 0)
         right_grid.addLayout(sn_row, 0, 1)
 
         test_time_label = QtWidgets.QLabel("Test Time")
         test_time_label.setStyleSheet("color: #d35400; font-weight: 700;")
         self.test_time_value = QtWidgets.QLabel("-")
-        self.test_time_value.setStyleSheet("color: #1f3b80; font-weight: 700;")
+        self.test_time_value.setStyleSheet("font-weight: 700;")
         right_grid.addWidget(test_time_label, 1, 0)
         right_grid.addWidget(self.test_time_value, 1, 1)
 
         mes_label = QtWidgets.QLabel("MES")
         mes_label.setStyleSheet("color: #d35400; font-weight: 700;")
         self.mes_status_label = QtWidgets.QLabel("Disabled" if not self.app_settings.mes_enabled else "Enabled")
-        self.mes_status_label.setStyleSheet("color: #1f3b80; font-weight: 700;")
+        self.mes_status_label.setStyleSheet("font-weight: 700;")
         right_grid.addWidget(mes_label, 2, 0)
         right_grid.addWidget(self.mes_status_label, 2, 1)
 
@@ -954,7 +964,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             if force:
                 append_log(self.log_box, "A test is running; wait until it finishes to change S/N.")
             return
-        dlg = SerialNumberDialog(self, prefill=self.current_serial)
+        dlg = SerialNumberDialog(self, prefill=self.current_serial, theme=self.current_theme)
         if dlg.exec() == QtWidgets.QDialog.Accepted and not dlg.aborted:
             self._handle_serial_accept(dlg.serial_text())
         elif dlg.aborted:
@@ -1087,6 +1097,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         dialog = SettingDialog(self.app_settings, self, reboot_handler=self._handle_dut_reboot)
         if dialog.exec() == QtWidgets.QDialog.Accepted:
             self.app_settings = dialog.get_settings()
+            self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or self._flashback_fw_used
             self.power_thresholds = copy.deepcopy(self.app_settings.power)
             self._sync_power_table_from_settings()
             self._apply_theme(self.app_settings.theme)
@@ -1157,7 +1168,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             self._prompt_employee_login()
 
     def _prompt_employee_login(self) -> None:
-        dialog = EmployeeLoginDialog(self)
+        dialog = EmployeeLoginDialog(self, theme=self.current_theme)
         if dialog.exec() == QtWidgets.QDialog.Accepted:
             self._handle_login_success(dialog.employee_no)
 
@@ -1165,11 +1176,9 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.program_label.setText(self.app_settings.program_name or "")
         self.station_value_label.setText(self.app_settings.station or "N/A")
         self.mes_status_label.setText("Enabled" if self.app_settings.mes_enabled else "Disabled")
-        self.mes_status_label.setStyleSheet(
-            "color: #1f3b80; font-weight: 700;" if self.app_settings.mes_enabled else "color: #6b7280; font-weight: 700;"
-        )
         self._update_emp_label()
         self._update_totals()
+        self._apply_header_styles()
 
     def _update_emp_label(self) -> None:
         self.emp_value_label.setText(self.employee_no if self.logged_in else "N/A")
@@ -1361,6 +1370,16 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
                     row["TestTime"] = str(int(round(seconds)))
                     if final_outcome:
                         row["Final"] = final_outcome
+                    if "FlashBack" in row:
+                        fb_val = ""
+                        if getattr(self, "_flashback_fail_reason", ""):
+                            fb_val = "FAIL"
+                        elif getattr(self, "_flashback_done", False):
+                            fb_val = "PASS"
+                        elif final_outcome:
+                            fb_val = "PASS" if final_outcome.upper() == "PASS" else "FAIL"
+                        if fb_val:
+                            row["FlashBack"] = fb_val
                     break
             with path.open("w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -2016,17 +2035,26 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             "SN",
             "DUT_Pos",
             "FirstFail",
-            "TestResult",
+            "PowerTest",
             "FW Ver",
             "Input_V",
             "Input_I",
             "VDD3v3",
             "VDD5V",
+            "STLink (Bootloader)",
+            "USB (Firmware)",
+            "Touch",
+            "GPIO",
+            "RS485 COM",
+            "RS232 COM",
+            "RS422 COM",
+            "LCD/Backlight",
+            "Ethernet",
+            "FlashBack",
             "Final",
             "TestTime",
             "TestDate",
             "Port",
-            "Raw",
         ]
 
         # Map columns to metric keys (best-effort; missing metrics stay blank).
@@ -2035,6 +2063,16 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             "Input_I": "iin_ma",
             "VDD3v3": "v3v3_mv",
             "VDD5V": "v5v_mv",
+        }
+        result_key_map = {
+            "STLink (Bootloader)": "stlink",
+            "USB (Firmware)": "usb",
+            "GPIO": "gpio",
+            "RS485 COM": "rs485",
+            "RS232 COM": "rs232",
+            "RS422 COM": "rs422",
+            "LCD/Backlight": "lcd",
+            "Ethernet": "ethernet",
         }
 
         def _metric_value(col: str) -> str:
@@ -2062,6 +2100,24 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
                 return ""
             txt = widget.text()
             return txt.strip()
+
+        def _status_value(col: str) -> str:
+            key = result_key_map.get(col, "")
+            res = self.results.get(key) if key else None
+            selected = set(self._current_batch_tests or self.app_settings.selected_tests or [])
+            if selected and key not in selected:
+                return "N/A"
+            status = (res.status or "").upper() if res else ""
+            if status in ("", "IDLE", None):
+                return "N/A"
+            return "PASS" if status == "PASS" else "FAIL"
+
+        def _flashback_status() -> str:
+            if getattr(self, "_flashback_fail_reason", ""):
+                return "FAIL"
+            if getattr(self, "_flashback_done", False):
+                return "PASS"
+            return ""
 
         # Determine first failing item for "FirstFail" column.
         first_fail = ""
@@ -2091,8 +2147,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
                     break
 
         within_limits = self._power_within_limits(metrics)
-        computed_outcome = outcome_override or self._current_run_outcome or self._compute_batch_outcome()
-        test_result = computed_outcome or ("PASS" if within_limits else "FAIL")
+        test_result = "PASS" if within_limits else "FAIL"
 
         # Main data row
         row = {
@@ -2102,17 +2157,26 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             "SN": self.current_serial or "",
             "DUT_Pos": 1,
             "FirstFail": first_fail,
-            "TestResult": test_result,
-            "FW Ver": "V1.0_251027",
+            "PowerTest": test_result,
+            "FW Ver": self._flashback_fw_used or getattr(self.app_settings, "flashback_fw_label", ""),
             "Input_V": _metric_value("Input_V"),
             "Input_I": _metric_value("Input_I"),
             "VDD3v3": _metric_value("VDD3v3"),
             "VDD5V": _metric_value("VDD5V"),
+            "STLink (Bootloader)": _status_value("STLink (Bootloader)"),
+            "USB (Firmware)": _status_value("USB (Firmware)"),
+            "Touch": (self.app_settings.usb_variant or "").upper() if hasattr(self, "app_settings") else "",
+            "GPIO": _status_value("GPIO"),
+            "RS485 COM": _status_value("RS485 COM"),
+            "RS232 COM": _status_value("RS232 COM"),
+            "RS422 COM": _status_value("RS422 COM"),
+            "LCD/Backlight": _status_value("LCD/Backlight"),
+            "Ethernet": _status_value("Ethernet"),
+            "FlashBack": _flashback_status(),
             "Final": "",
             "TestTime": str(int(round(self._dut_elapsed_seconds))) if getattr(self, "_dut_elapsed_seconds", 0) else "",
             "TestDate": date_str,
             "Port": port,
-            "Raw": raw_text.replace("\n", " | "),
         }
 
         write_header = not log_path.exists()
@@ -2350,6 +2414,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self._set_interactive_enabled(False)
         self._reboot_before_stlink_connect()
         elf_path = Path("bin/bootloader_old.elf")
+        self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or elf_path.name
 
         def launch_stlink() -> None:
             if not elf_path.exists():
@@ -2385,6 +2450,54 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self._current_run_outcome = final_outcome
         self._send_esp32_end_signal()
 
+    def _run_mes_mysql_smoke(self) -> None:
+        """Execute MES/MySQL connectivity-only checks when Skip Test is enabled."""
+        sample_sn = self.current_serial or "MES_SMOKE_SN"
+
+        mes_cfg = getattr(self.app_settings, "mes_config", None)
+        if self.app_settings.mes_enabled and mes_cfg and mes_cfg.base_url:
+            try:
+                mes_client = MesClient(
+                    base_url=mes_cfg.base_url,
+                    check_sn_key=mes_cfg.check_sn_key,
+                    insert_key=mes_cfg.insert_details_key,
+                    plant_code=mes_cfg.plant_code,
+                    station_id=self.app_settings.station or "N/A",
+                )
+                mes_results = mes_client.smoke_tests(sample_sn)
+                append_log(
+                    self.log_box,
+                    f"[MIS] Smoke test check_sn_status={mes_results.get('check_sn_status')} "
+                    f"upload_result={mes_results.get('upload_result')}",
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                append_log(self.log_box, f"[MIS] Smoke test error: {exc}")
+        else:
+            append_log(self.log_box, "[MIS] Skipped MES smoke test (disabled or missing base URL).")
+
+        mysql_cfg = getattr(self.app_settings, "mysql_config", None)
+        if mysql_cfg and mysql_cfg.enable:
+            try:
+                db_client = MySQLClient(
+                    host=mysql_cfg.host,
+                    port=int(mysql_cfg.port or 3306),
+                    user=mysql_cfg.user,
+                    password=mysql_cfg.password,
+                    db_name=mysql_cfg.db_name,
+                    table_name=mysql_cfg.table_name,
+                    enable=mysql_cfg.enable,
+                )
+                mysql_results = db_client.smoke_tests(sample_sn, sw_version=self.app_settings.program_name or "SMOKE")
+                append_log(
+                    self.log_box,
+                    f"[MySQL] Smoke test connect={mysql_results.get('connect')} "
+                    f"insert_verify={mysql_results.get('insert_verify')}",
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                append_log(self.log_box, f"[MySQL] Smoke test error: {exc}")
+        else:
+            append_log(self.log_box, "[MySQL] Skipped DB smoke test (disabled).")
+
     def _start_selected_tests(self) -> None:
         if not self.logged_in:
             append_log(self.log_box, "Please login first.")
@@ -2401,11 +2514,8 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             return
 
         if getattr(self.app_settings, "skip_tests", False):
-            append_log(self.log_box, "[Main] Skip Test enabled; skipping all tests and calling MES connect stub.")
-            try:
-                print("MES connect")
-            except Exception:
-                pass
+            append_log(self.log_box, "[Main] Skip Test enabled; running MES/MySQL connectivity checks only.")
+            self._run_mes_mysql_smoke()
             self._reset_results()
             try:
                 self._reset_power_readings()
@@ -2586,9 +2696,42 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             app.setStyleSheet(theme_stylesheet(normalized))
         apply_global_font(self.ui_scale)
         self._refresh_power_styles()
+        self._apply_header_styles()
         if hasattr(self, "app_settings") and self.app_settings.theme != normalized:
             self.app_settings.theme = normalized
             self._persist_settings()
+
+    def _apply_header_styles(self) -> None:
+        """Theme-aware styling for header titles and S/N field."""
+        dark = (self.current_theme or "light") == "dark"
+        primary = "#e8eaed" if dark else "#1f3b80"
+        value_color = primary
+        disabled_color = "#9ca3af" if dark else "#6b7280"
+        serial_bg = (
+            "padding: 4px 8px; background: #2b2f36; border: 1px solid #3c4043; border-radius: 6px; color: #e8eaed;"
+            if dark
+            else "padding: 4px 8px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; color: #1f2937;"
+        )
+        if hasattr(self, "version_label"):
+            self.version_label.setStyleSheet(f"font-size: 18px; font-weight: 800; color: {primary};")
+        if hasattr(self, "program_label"):
+            self.program_label.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {primary};")
+        if hasattr(self, "clock_label"):
+            self.clock_label.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {primary};")
+        if hasattr(self, "station_value_label"):
+            self.station_value_label.setStyleSheet(f"font-weight: 700; color: {value_color};")
+        if hasattr(self, "emp_value_label"):
+            self.emp_value_label.setStyleSheet(f"font-weight: 700; color: {value_color};")
+        if hasattr(self, "test_time_value"):
+            self.test_time_value.setStyleSheet(f"font-weight: 700; color: {value_color};")
+        if hasattr(self, "mes_status_label"):
+            mes_color = value_color if getattr(self.app_settings, "mes_enabled", False) else disabled_color
+            self.mes_status_label.setStyleSheet(f"font-weight: 700; color: {mes_color};")
+        if hasattr(self, "serial_edit"):
+            self.serial_edit.setStyleSheet(serial_bg)
+        if hasattr(self, "sn_label"):
+            sn_color = "#f59e0b" if dark else "#d35400"
+            self.sn_label.setStyleSheet(f"color: {sn_color}; font-weight: 700;")
 
     def _power_styles(self) -> Dict[str, str]:
         """Theme-aware styles for the Excel-like power table."""
@@ -2735,6 +2878,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self._loading_config = True
         try:
             self.app_settings = copy.deepcopy(new_settings)
+            self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or self._flashback_fw_used
             self.power_thresholds = copy.deepcopy(self.app_settings.power)
             self._sync_power_table_from_settings()
             self._restore_selected_tests()
@@ -2828,7 +2972,7 @@ def main() -> None:
     initial_theme = (app_settings.theme or "light").lower()
     app.setStyleSheet(theme_stylesheet(initial_theme))
     apply_global_font(max(0.6, compute_scale() * 0.7))
-    login_dialog = EmployeeLoginDialog()
+    login_dialog = EmployeeLoginDialog(theme=initial_theme)
     if login_dialog.exec() != QtWidgets.QDialog.Accepted:
         sys.exit(0)
     window = TestFixtureWindow(app_settings, login_dialog.employee_no)

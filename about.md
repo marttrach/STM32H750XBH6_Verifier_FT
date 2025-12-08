@@ -1,11 +1,12 @@
-# STM32 生產測試治具
+# STM32 Production Test Fixture
 
-以 PySide6 (LGPL) 建立的生產線測試介面，涵蓋登入、燒錄、序列埠測試、日誌與提交紀錄等功能。請依實際量產需求串接 STLink/DFU/串口測試流程。
+PySide6-based UI for STM32 factory verification. Includes login, settings, batch/serial tests, power logging, and STLink/DFU/serial workflows tailored for production needs.
 
-## 開發記錄
-- v0.6: UI 更動 & GPIO/Ethernet 測試功能建立, 流程穩定
-- v0.5: Serial/LCD 測試功能建立
-- v0.4: USB Firmware 功能建立
-- v0.3: STM32CubeProgrammer Api 建立
-- v0.2: 新增 Light/Dark 切換、登出、雙重關閉確認、響應式縮放、工具列選單 (Import/Export/Exit、License、About)。
-- v0.1: 初版 UI，登入門檻、基本測試按鈕、日誌與結果提交。
+## Release Notes
+- v0.7: MES/MySQL Test.
+- v0.6: UI refinements; added GPIO/Ethernet tests; streamlined flows.
+- v0.5: Added Serial/LCD test support.
+- v0.4: Added USB firmware flashing.
+- v0.3: Integrated STM32CubeProgrammer API.
+- v0.2: Added Light/Dark themes, login validation, scaling, and basic tooling (Import/Export/Exit/License/About).
+- v0.1: Initial UI with login, basic tests, and log export.

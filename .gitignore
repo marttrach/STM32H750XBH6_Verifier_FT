@@ -9,3 +9,4 @@ user_config.json
 /DEBUG_LOG
 *.txt
 settings.json
+/docs/*.pdf

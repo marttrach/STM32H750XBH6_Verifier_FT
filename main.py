@@ -10,6 +10,7 @@ Modules:
 - csv_log: write test results to CSV.
 """
 
+import os
 import sys
 import json
 from pathlib import Path
@@ -30,6 +31,7 @@ from global_utility import (
     TestResult,
     StatusLabel,
     append_log,
+    resource_path,
     compute_scale,
     apply_global_font,
     resize_by_scale,
@@ -39,7 +41,7 @@ from cmysql import MySQLClient
 from setting import AppSettings, SettingDialog, load_settings, save_settings, MesConfig, MysqlConfig
 LOG_DIR = Path("LOG")
 
-APP_VERSION = "0.7_00251208"
+APP_VERSION = "0.8_00251209"
 
 
 class SerialNumberDialog(QtWidgets.QDialog):
@@ -259,7 +261,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         resize_by_scale(self, self.ui_scale)
         self.app_settings: AppSettings = copy.deepcopy(app_settings)
         self.employee_no = employee_no.strip()
-        self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or "bootloader_old.elf"
+        self._flashback_fw_used, _ = self._flashback_label_and_path()
         self.results: Dict[str, TestResult] = {
             "power": TestResult("Power"),
             "stlink": TestResult("STLink (Bootloader)"),
@@ -851,7 +853,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self.usb_fw_path = QtWidgets.QLineEdit()
         self.usb_fw_path.setPlaceholderText("Select firmware file to flash")
         self.usb_fw_path.setMinimumHeight(int(28 * self.ui_scale))
-        self.usb_fw_path.setText(str(Path("bin/firmware_ctp.orig")))
+        self.usb_fw_path.setText(str(resource_path("bin/firmware_ctp.orig")))
         self.usb_browse_btn = QtWidgets.QPushButton("Browse...")
         self.usb_browse_btn.setMinimumHeight(int(28 * self.ui_scale))
         self.usb_browse_btn.clicked.connect(self._choose_usb_file)
@@ -1093,11 +1095,27 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self._refresh_all_button_cursors()
 
     # Settings and header helpers
+    def _flashback_label_and_path(self) -> tuple[str, Path]:
+        label = getattr(self.app_settings, "flashback_fw_label", "") or "V1.0_251027"
+        filename = label if label.lower().endswith(".elf") else f"{label}.elf"
+        candidates = []
+        for key in ("NUITKA_ONEFILE_TEMP", "NUITKA_ONEFILE_TEMP_DIR", "NUITKA_ONEFILE_PARENT", "NUITKA_ONEFILE_APPDIR"):
+            base = os.environ.get(key)
+            if base:
+                candidates.append(Path(base) / "bin" / filename)
+        candidates.append(Path(sys.executable).resolve().parent / "bin" / filename)
+        candidates.append(Path.cwd() / "bin" / filename)
+
+        for path in candidates:
+            if path.exists():
+                return label, path
+        return label, candidates[-1]
+
     def _open_settings(self) -> None:
         dialog = SettingDialog(self.app_settings, self, reboot_handler=self._handle_dut_reboot)
         if dialog.exec() == QtWidgets.QDialog.Accepted:
             self.app_settings = dialog.get_settings()
-            self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or self._flashback_fw_used
+            self._flashback_fw_used, _ = self._flashback_label_and_path()
             self.power_thresholds = copy.deepcopy(self.app_settings.power)
             self._sync_power_table_from_settings()
             self._apply_theme(self.app_settings.theme)
@@ -1146,7 +1164,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             if idx >= 0:
                 self.usb_action_combo.setCurrentIndex(idx)
             # fw path
-            self.usb_fw_path.setText(self.app_settings.usb_fw_path or str(Path("bin/firmware_ctp.orig")))
+            self.usb_fw_path.setText(self.app_settings.usb_fw_path or str(resource_path("bin/firmware_ctp.orig")))
             # variant
             variant = (self.app_settings.usb_variant or "ctp").lower()
             if variant == "rtp":
@@ -1666,12 +1684,12 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         if variant == "rtp":
             self.usb_variant_ctp.setChecked(False)
             self.usb_variant_rtp.setChecked(True)
-            self.usb_fw_path.setText(str(Path("bin/firmware_rtp.orig")))
+            self.usb_fw_path.setText(str(resource_path("bin/firmware_rtp.orig")))
             self.app_settings.usb_variant = "rtp"
         else:
             self.usb_variant_ctp.setChecked(True)
             self.usb_variant_rtp.setChecked(False)
-            self.usb_fw_path.setText(str(Path("bin/firmware_ctp.orig")))
+            self.usb_fw_path.setText(str(resource_path("bin/firmware_ctp.orig")))
             self.app_settings.usb_variant = "ctp"
         self._persist_settings()
 
@@ -1735,7 +1753,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
                 append_log(self.log_box, detail)
                 QtCore.QTimer.singleShot(0, lambda: self._finish_test(key, False, detail))
                 return
-            stlink.run_stlink(lambda passed, detail: self._finish_test(key, passed, detail))
+            stlink.run_stlink(lambda passed, detail: self._on_stlink_done(key, passed, detail))
         elif key == "usb":
             if not self.usb_custom_action_box.isChecked():
                 self._run_default_usb_sequence()
@@ -1811,7 +1829,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
 
     def _run_default_usb_sequence(self) -> None:
         """Default USB flow: ADE -> wait -> MP -> wait -> re-enumerate."""
-        ade_path = Path("bin/FT_test.cpio")
+        ade_path = resource_path("bin/FT_test.cpio")
         mp_path_text = self.usb_fw_path.text().strip()
         verify_board = self.usb_verify_box.isChecked()
 
@@ -2236,8 +2254,22 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
                     self._abort_batch(detail)
                     return
                 self.power_data_ready = True
-                append_log(self.log_box, "ESP32 power data received; starting selected tests...")
-                append_log(self.log_box, text)
+                # Show a single concise line instead of dumping the raw ESP32 text twice.
+                summary_parts = []
+                for key, meta in self.power_thresholds.items():
+                    val = metrics.get(key)
+                    if val is None:
+                        continue
+                    label = meta.get("label", key)
+                    unit = meta.get("unit", "")
+                    try:
+                        val_str = f"{float(val):.0f}"
+                    except Exception:
+                        val_str = str(val)
+                    summary_parts.append(f"{label}={val_str}{unit}")
+                summary = "; ".join(summary_parts)
+                prefix = "ESP32 power data received; starting selected tests..."
+                append_log(self.log_box, f"{prefix} ({summary})" if summary else prefix)
                 print(f"[DEBUG] ESP32 metrics: {metrics}")
                 print("[DEBUG] updating power readings...")
                 self._update_power_readings(metrics)
@@ -2413,19 +2445,16 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self._set_summary_status("FLASH BACK")
         self._set_interactive_enabled(False)
         self._reboot_before_stlink_connect()
-        elf_path = Path("bin/bootloader_old.elf")
-        self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or elf_path.name
+        self._flashback_fw_used, elf_path = self._flashback_label_and_path()
 
         def launch_stlink() -> None:
             if not elf_path.exists():
-                append_log(self.log_box, "[Main] Missing bootloader file: bin/bootloader_old.elf")
+                append_log(self.log_box, f"[Main] Missing bootloader file: {elf_path}")
                 self._finalize_batch("FAIL", is_batch=is_batch)
                 return
             try:
                 stlink.run_stlink(
-                    lambda passed, detail: QtCore.QTimer.singleShot(
-                        0, lambda: self._flashback_verify_step(base_outcome, passed, detail, is_batch=is_batch)
-                    ),
+                    lambda passed, detail: self._on_flashback_stlink_done(base_outcome, passed, detail, is_batch=is_batch),
                     elf_path=elf_path,
                 )
             except Exception as exc:  # pragma: no cover - runtime protection
@@ -2434,6 +2463,22 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
 
         append_log(self.log_box, "[Main] Delay 100ms then connecting STLink...")
         QtCore.QTimer.singleShot(100, launch_stlink)
+
+    def _on_stlink_done(self, key: str, passed: bool, detail: str) -> None:
+        try:
+            append_log(self.log_box, f"[Main] STLink callback received (passed={passed}).")
+            self._finish_test(key, passed, detail)
+        except Exception as exc:
+            append_log(self.log_box, f"[Main] STLink callback error: {exc}")
+            self._finish_test(key, False, f"STLink callback error: {exc}")
+
+    def _on_flashback_stlink_done(self, base_outcome: str, passed: bool, detail: str, *, is_batch: bool) -> None:
+        try:
+            append_log(self.log_box, f"[Main] Flashback STLink callback received (passed={passed}).")
+            self._flashback_verify_step(base_outcome, passed, detail, is_batch=is_batch)
+        except Exception as exc:
+            append_log(self.log_box, f"[Main] Flashback STLink callback error: {exc}")
+            self._flashback_verify_step(base_outcome, False, f"Flashback callback error: {exc}", is_batch=is_batch)
 
     def _flashback_verify_step(self, base_outcome: str, stlink_passed: bool, detail: str, *, is_batch: bool) -> None:
         if detail:
@@ -2878,7 +2923,7 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         self._loading_config = True
         try:
             self.app_settings = copy.deepcopy(new_settings)
-            self._flashback_fw_used = getattr(self.app_settings, "flashback_fw_label", "") or self._flashback_fw_used
+            self._flashback_fw_used, _ = self._flashback_label_and_path()
             self.power_thresholds = copy.deepcopy(self.app_settings.power)
             self._sync_power_table_from_settings()
             self._restore_selected_tests()

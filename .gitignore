@@ -10,3 +10,5 @@ user_config.json
 *.txt
 settings.json
 /docs/*.pdf
+/build
+/icon

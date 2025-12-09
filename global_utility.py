@@ -1,3 +1,5 @@
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
@@ -14,6 +16,34 @@ RESULTS_FILE = Path("test_results.csv")
 # Baseline resolution for responsive scaling.
 BASE_WIDTH = 1280
 BASE_HEIGHT = 720
+
+
+def resource_path(relative: str | Path) -> Path:
+    """Return best-effort resource path: prefer onefile temp/app dir, else exe dir, else CWD."""
+    rel = Path(relative)
+    candidates = []
+
+    for key in (
+        "NUITKA_ONEFILE_TEMP",
+        "NUITKA_ONEFILE_TEMP_DIR",
+        "NUITKA_ONEFILE_PARENT",
+        "NUITKA_ONEFILE_APPDIR",
+    ):
+        base = os.environ.get(key)
+        if base:
+            candidates.append(Path(base) / rel)
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / rel)
+
+    candidates.append(Path(sys.executable).resolve().parent / rel)
+    candidates.append(Path.cwd() / rel)
+
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[-1]
 
 
 @dataclass

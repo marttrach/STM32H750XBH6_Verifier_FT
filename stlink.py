@@ -9,7 +9,6 @@ Key behaviors:
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import platform
 import sys
@@ -20,35 +19,24 @@ from typing import Callable, Iterable, Optional
 
 from PySide6 import QtCore, QtWidgets
 
-LOCAL_CUBEPROG = Path(__file__).resolve().parent / "stm32cubeprog" / "api.py"
+from global_utility import resource_path
+
 _CUBEPROG_IMPORT_ERROR: Optional[str] = None
 
-if LOCAL_CUBEPROG.exists():
-    spec = importlib.util.spec_from_file_location(
-        "stm32cubeprog.api_local", str(LOCAL_CUBEPROG)
+try:
+    from stm32cubeprog.api import (  # type: ignore
+        CubeProgrammerApi,
+        CubeProgrammerError,
+        CubeProgrammerResetMode,
     )
-    cubeprog_module = importlib.util.module_from_spec(spec) if spec else None
-    try:
-        if spec and spec.loader and cubeprog_module:
-            spec.loader.exec_module(cubeprog_module)
-            CubeProgrammerApi = cubeprog_module.CubeProgrammerApi  # type: ignore[attr-defined]
-            CubeProgrammerError = cubeprog_module.CubeProgrammerError  # type: ignore[attr-defined]
-            CubeProgrammerResetMode = cubeprog_module.CubeProgrammerResetMode  # type: ignore[attr-defined]
-        else:  # pragma: no cover
-            raise ImportError("Cannot load stm32cubeprog.api spec")
-    except Exception as exc:  # pragma: no cover
-        CubeProgrammerApi = None
-        CubeProgrammerError = None
-        CubeProgrammerResetMode = None
-        _CUBEPROG_IMPORT_ERROR = f"Failed to import {LOCAL_CUBEPROG}: {exc}"
-else:
+except Exception as exc:  # pragma: no cover - load failure path
     CubeProgrammerApi = None  # type: ignore
     CubeProgrammerError = None  # type: ignore
     CubeProgrammerResetMode = None  # type: ignore
-    _CUBEPROG_IMPORT_ERROR = f"Local CubeProgrammer API not found at {LOCAL_CUBEPROG}"
+    _CUBEPROG_IMPORT_ERROR = f"Failed to import stm32cubeprog.api: {exc}"
 
 
-DEFAULT_ELF = Path("bin/bootloader.elf")
+DEFAULT_ELF = resource_path("bin/bootloader.elf")
 DEFAULT_FREQ_KHZ = 4000
 DEFAULT_RESET = "software"
 DEFAULT_ADDRESS = "0x08000000"
@@ -74,10 +62,19 @@ class _StlinkJob(QtCore.QRunnable):
     def run(self) -> None:
         passed, detail = self._flash()
         app = QtWidgets.QApplication.instance()
+        def _do_callback() -> None:
+            try:
+                self.callback(passed, detail)
+            except Exception as exc:  # pragma: no cover - runtime guard
+                _log(f"ERROR: callback raised {exc}")
+                raise
+
+        _log(f"Completed flash worker; dispatching callback (passed={passed}).")
         if app:
-            QtCore.QTimer.singleShot(0, app, lambda: self.callback(passed, detail))
+            # Ensure the callback always runs on the GUI thread.
+            QtCore.QTimer.singleShot(0, app, _do_callback)
         else:
-            self.callback(passed, detail)
+            _do_callback()
 
     def _flash(self) -> tuple[bool, str]:
         _log("Starting STLink flash worker...")

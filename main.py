@@ -41,7 +41,7 @@ from cmysql import MySQLClient
 from setting import AppSettings, SettingDialog, load_settings, save_settings, MesConfig, MysqlConfig
 LOG_DIR = Path("LOG")
 
-APP_VERSION = "0.8_00251209"
+APP_VERSION = "0.9_00251209"
 
 
 class SerialNumberDialog(QtWidgets.QDialog):
@@ -2954,9 +2954,33 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             return
         append_log(self.log_box, f"Exported settings to {path}")
 
+    def _find_resource_file(self, filename: str) -> Optional[Path]:
+        """Locate a bundled or local file (handles onefile extraction)."""
+        candidates: List[Optional[Path]] = [
+            Path.cwd() / filename,
+            Path(__file__).resolve().parent / filename,
+            Path(sys.argv[0]).resolve().parent / filename,
+            Path(sys.executable).resolve().parent / filename if getattr(sys, "executable", None) else None,
+        ]
+        if getattr(sys, "frozen", False) or getattr(sys, "compiled", False):
+            tmp_dir = os.environ.get("NUITKA_ONEFILE_TEMP")
+            if tmp_dir:
+                candidates.append(Path(tmp_dir) / filename)
+        seen = set()
+        for path in candidates:
+            if not path:
+                continue
+            key = str(path.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            if path.exists():
+                return path
+        return None
+
     def _show_license(self) -> None:
-        license_path = Path("LICENSE")
-        if license_path.exists():
+        license_path = self._find_resource_file("LICENSE")
+        if license_path and license_path.exists():
             content = license_path.read_text(encoding="utf-8")
         else:
             content = "LICENSE file not found."
@@ -2968,8 +2992,8 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         )
 
     def _show_about(self) -> None:
-        about_path = Path("about.md")
-        if about_path.exists():
+        about_path = self._find_resource_file("about.md")
+        if about_path and about_path.exists():
             content = about_path.read_text(encoding="utf-8")
         else:
             content = "# About\nSTM32 Production Test Fixture - no changelog available."

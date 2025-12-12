@@ -3,6 +3,7 @@
 PySide6-based UI for STM32 factory verification. Includes login, settings, batch/serial tests, power logging, and STLink/DFU/serial workflows tailored for production needs.
 
 ## Release Notes
+- V0.9.1: Add STM32Prog MIT license and update UI for license display.
 - v0.9: Some Bug issue Fix.
 - v0.8: Requirement and import adjustment.
 - v0.7: MES/MySQL Test.

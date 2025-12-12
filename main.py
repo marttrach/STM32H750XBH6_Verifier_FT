@@ -394,9 +394,12 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         bar.addAction(mes_setting_act)
 
         license_menu = bar.addMenu("License")
-        license_act = QtGui.QAction("PySide6 LGPL", self)
-        license_act.triggered.connect(self._show_license)
-        license_menu.addAction(license_act)
+        pyside_license_act = QtGui.QAction("PySide6 LGPL", self)
+        pyside_license_act.triggered.connect(self._show_license)
+        license_menu.addAction(pyside_license_act)
+        stm32prog_license_act = QtGui.QAction("STM32Prog MIT", self)
+        stm32prog_license_act.triggered.connect(self._show_stm32prog_license)
+        license_menu.addAction(stm32prog_license_act)
 
         about_menu = bar.addMenu("About")
         about_act = QtGui.QAction("About / Changelog", self)
@@ -407,7 +410,8 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
             "export": export_act,
             "setting": setting_act,
             "mes": mes_setting_act,
-            "license": license_act,
+            "license_pyside6": pyside_license_act,
+            "license_stm32prog": stm32prog_license_act,
             "about": about_act,
         }
 
@@ -2955,17 +2959,20 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
         append_log(self.log_box, f"Exported settings to {path}")
 
     def _find_resource_file(self, filename: str) -> Optional[Path]:
-        """Locate a bundled or local file (handles onefile extraction)."""
-        candidates: List[Optional[Path]] = [
-            Path.cwd() / filename,
-            Path(__file__).resolve().parent / filename,
-            Path(sys.argv[0]).resolve().parent / filename,
-            Path(sys.executable).resolve().parent / filename if getattr(sys, "executable", None) else None,
-        ]
+        """Locate a bundled or local file, preferring the extracted onefile location."""
+        candidates: List[Optional[Path]] = []
         if getattr(sys, "frozen", False) or getattr(sys, "compiled", False):
             tmp_dir = os.environ.get("NUITKA_ONEFILE_TEMP")
             if tmp_dir:
                 candidates.append(Path(tmp_dir) / filename)
+        candidates.extend(
+            [
+                Path.cwd() / filename,
+                Path(__file__).resolve().parent / filename,
+                Path(sys.argv[0]).resolve().parent / filename if sys.argv else None,
+                Path(sys.executable).resolve().parent / filename if getattr(sys, "executable", None) else None,
+            ]
+        )
         seen = set()
         for path in candidates:
             if not path:
@@ -2978,30 +2985,51 @@ class TestFixtureWindow(QtWidgets.QMainWindow):
                 return path
         return None
 
-    def _show_license(self) -> None:
-        license_path = self._find_resource_file("LICENSE")
-        if license_path and license_path.exists():
-            content = license_path.read_text(encoding="utf-8")
+    def _show_text_resource(
+        self,
+        title: str,
+        filename: str,
+        markdown: bool = False,
+        transparent: bool = True,
+        fallback: Optional[str] = None,
+    ) -> None:
+        resource_path = self._find_resource_file(filename)
+        if resource_path and resource_path.exists():
+            content = resource_path.read_text(encoding="utf-8")
         else:
-            content = "LICENSE file not found."
+            content = fallback or f"{filename} file not found."
         self._show_text_window(
-            "License",
+            title,
             content,
+            markdown=markdown,
+            transparent=transparent,
+        )
+
+    def _show_license(self) -> None:
+        self._show_text_resource(
+            "PySide6 LGPL License",
+            "LICENSE",
             markdown=False,
             transparent=True,
+            fallback="LICENSE file not found.",
+        )
+
+    def _show_stm32prog_license(self) -> None:
+        self._show_text_resource(
+            "STM32Prog MIT License",
+            "stm32cubeprog/LICENSE",
+            markdown=False,
+            transparent=True,
+            fallback="stm32cubeprog/LICENSE file not found.",
         )
 
     def _show_about(self) -> None:
-        about_path = self._find_resource_file("about.md")
-        if about_path and about_path.exists():
-            content = about_path.read_text(encoding="utf-8")
-        else:
-            content = "# About\nSTM32 Production Test Fixture - no changelog available."
-        self._show_text_window(
+        self._show_text_resource(
             "About / Changelog",
-            content,
+            "about.md",
             markdown=True,
             transparent=False,
+            fallback="# About\nSTM32 Production Test Fixture - no changelog available.",
         )
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
